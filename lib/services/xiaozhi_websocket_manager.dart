@@ -86,9 +86,6 @@ class XiaozhiWebSocketManager {
       print('$TAG: 设备ID: $_deviceId');
       print('$TAG: Token启用: $_enableToken');
 
-      if (_enableToken) {
-        print('$TAG: 使用Token: $token');
-      }
 
       // 尝试使用headers (这在非Web平台上有效)
       try {
@@ -102,7 +99,7 @@ class XiaozhiWebSocketManager {
         // 添加Authorization头，参考Java实现
         if (_enableToken && token.isNotEmpty) {
           headers['Authorization'] = 'Bearer $token';
-          print('$TAG: 添加Authorization头: Bearer $token');
+          print('$TAG: 已添加Authorization头');
         } else {
           headers['Authorization'] = 'Bearer test-token';
           print('$TAG: 添加默认Authorization头: Bearer test-token');
@@ -126,7 +123,7 @@ class XiaozhiWebSocketManager {
             String authMessage =
                 'Authorization: Bearer ${_enableToken && token.isNotEmpty ? token : "test-token"}';
             _channel!.sink.add(authMessage);
-            print('$TAG: 发送认证消息: $authMessage');
+            print('$TAG: 已发送认证消息');
 
             // 发送设备ID信息
             String deviceIdMessage = 'Device-ID: $_deviceId';

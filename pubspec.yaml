@@ -56,7 +56,8 @@ dependencies:
   path_provider: ^2.1.5
   just_audio: ^0.9.36
   audio_session: ^0.1.18
-  flutter_pcm_player: ^0.0.1
+  flutter_pcm_player:
+    path: third_party/flutter_pcm_player
   record: ^5.2.1
   flutter_launcher_icons: ^0.14.3
   flutter_displaymode: ^0.6.0

@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_sound/flutter_sound.dart';
+import 'package:http/http.dart' as http;
 import '../services/xiaozhi_websocket_manager.dart';
 import '../utils/device_util.dart';
 import '../utils/audio_util.dart';
@@ -191,14 +192,50 @@ class XiaozhiService {
       // 添加WebSocket事件监听
       _webSocketManager!.addListener(_onWebSocketEvent);
 
-      // 连接WebSocket
-      await _webSocketManager!.connect(websocketUrl, token);
+      await _webSocketManager!.connect(websocketUrl, await _getConnectionToken());
     } catch (e) {
       print('$TAG: 连接失败: $e');
       _dispatchEvent(
         XiaozhiServiceEvent(XiaozhiServiceEventType.error, '连接小智服务失败: $e'),
       );
     }
+  }
+
+  /// 自建服务每次连接前从 OTA 获取与设备 ID 匹配的 Token。
+  Future<String> _getConnectionToken() async {
+    final wsUri = Uri.parse(websocketUrl);
+    if (wsUri.port != 8000) return token;
+
+    final otaUri = Uri(
+      scheme: wsUri.scheme == 'wss' ? 'https' : 'http',
+      host: wsUri.host,
+      port: 8002,
+      path: '/xiaozhi/ota/',
+    );
+    final response = await http.post(
+      otaUri,
+      headers: {
+        'Content-Type': 'application/json',
+        'Device-Id': macAddress,
+        'Client-Id': macAddress,
+      },
+      body: jsonEncode({
+        'application': {
+          'name': 'xiaozhi-android-client',
+          'version': '2.0.0',
+        },
+      }),
+    ).timeout(const Duration(seconds: 10));
+    if (response.statusCode != 200) {
+      throw Exception('OTA 请求失败：HTTP ${response.statusCode}');
+    }
+    final otaData = jsonDecode(response.body) as Map<String, dynamic>;
+    final websocket = otaData['websocket'] as Map<String, dynamic>?;
+    final connectionToken = websocket?['token'] as String? ?? '';
+    if (connectionToken.isEmpty) {
+      throw Exception('OTA 未返回 WebSocket Token');
+    }
+    return connectionToken;
   }
 
   /// 断开小智服务连接
@@ -316,7 +353,6 @@ class XiaozhiService {
       print('$TAG: 正在连接 $websocketUrl');
       print('$TAG: 设备ID: $macAddress');
       print('$TAG: Token启用: true');
-      print('$TAG: 使用Token: $token');
 
       // 使用 WebSocketManager 连接
       _webSocketManager = XiaozhiWebSocketManager(
@@ -324,7 +360,7 @@ class XiaozhiService {
         enableToken: true,
       );
       _webSocketManager!.addListener(_onWebSocketEvent);
-      await _webSocketManager!.connect(websocketUrl, token);
+      await _webSocketManager!.connect(websocketUrl, await _getConnectionToken());
     } catch (e) {
       print('$TAG: 连接失败: $e');
       rethrow;

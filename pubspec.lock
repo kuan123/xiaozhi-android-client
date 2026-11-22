@@ -305,10 +305,9 @@ packages:
   flutter_pcm_player:
     dependency: "direct main"
     description:
-      name: flutter_pcm_player
-      sha256: "775706eaa7327300c65783c6920c199279cbc26d73db42f471874e4067988a18"
-      url: "https://pub.dev"
-    source: hosted
+      path: "third_party/flutter_pcm_player"
+      relative: true
+    source: path
     version: "0.0.1"
   flutter_plugin_android_lifecycle:
     dependency: transitive

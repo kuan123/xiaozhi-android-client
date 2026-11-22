@@ -2420,6 +2420,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                         ).addXiaozhiConfig(
                           name,
                           websocketUrl,
+                          token: token,
                           customMacAddress:
                               macAddress.isNotEmpty ? macAddress : null,
                         );
