@@ -17,6 +17,8 @@ class AudioUtil {
   static const int SAMPLE_RATE = 16000;
   static const int CHANNELS = 1;
   static const int FRAME_DURATION = 60; // 毫秒
+  static const int FRAME_SAMPLES = SAMPLE_RATE * FRAME_DURATION ~/ 1000;
+  static const int FRAME_BYTES = FRAME_SAMPLES * CHANNELS * 2;
 
   static final AudioRecorder _audioRecorder = AudioRecorder();
   static ja.AudioPlayer? _player;
@@ -28,6 +30,7 @@ class AudioUtil {
       StreamController<Uint8List>.broadcast();
   static String? _tempFilePath;
   static Timer? _audioProcessingTimer;
+  static final BytesBuilder _pcmBuffer = BytesBuilder(copy: true);
 
   // Opus相关
   static final _encoder = SimpleOpusEncoder(
@@ -210,6 +213,8 @@ class AudioUtil {
 
     if (_isRecording) return;
 
+    _pcmBuffer.takeBytes();
+
     try {
       print('$TAG: 尝试启动录音');
 
@@ -234,6 +239,8 @@ class AudioUtil {
             encoder: AudioEncoder.pcm16bits,
             sampleRate: SAMPLE_RATE,
             numChannels: CHANNELS,
+            echoCancel: true,
+            noiseSuppress: true,
           ),
         );
 
@@ -242,19 +249,13 @@ class AudioUtil {
 
         // 直接从流中处理数据
         stream.listen(
-          (data) async {
-            if (data.isNotEmpty && data.length % 2 == 0) {
-              final opusData = await encodeToOpus(data);
-              if (opusData != null) {
-                _audioStreamController.add(opusData);
-              }
-            }
-          },
+          _processPcmChunk,
           onError: (error) {
             print('$TAG: 音频流错误: $error');
             _isRecording = false;
           },
           onDone: () {
+            _flushPcmBuffer();
             print('$TAG: 音频流结束');
             _isRecording = false;
           },
@@ -273,7 +274,11 @@ class AudioUtil {
 
   /// 停止录音
   static Future<String?> stopRecording() async {
-    if (!_isRecorderInitialized || !_isRecording) return null;
+    if (!_isRecorderInitialized) return null;
+    if (!_isRecording) {
+      _flushPcmBuffer();
+      return null;
+    }
 
     // 取消定时器
     _audioProcessingTimer?.cancel();
@@ -281,51 +286,54 @@ class AudioUtil {
     // 停止录音
     try {
       final path = await _audioRecorder.stop();
+      _flushPcmBuffer();
       _isRecording = false;
       print('$TAG: 停止录音: $path');
       return path;
     } catch (e) {
+      _flushPcmBuffer();
       print('$TAG: 停止录音失败: $e');
       _isRecording = false;
       return null;
     }
   }
 
-  /// 将PCM数据编码为Opus格式
-  static Future<Uint8List?> encodeToOpus(Uint8List pcmData) async {
+  static void _processPcmChunk(Uint8List data) {
+    if (data.isEmpty) return;
+
+    _pcmBuffer.add(data);
+    final bytes = _pcmBuffer.takeBytes();
+    var offset = 0;
+    while (bytes.length - offset >= FRAME_BYTES) {
+      final frame = Uint8List.sublistView(bytes, offset, offset + FRAME_BYTES);
+      final opusData = _encodeFrame(frame);
+      if (opusData != null) _audioStreamController.add(opusData);
+      offset += FRAME_BYTES;
+    }
+    if (offset < bytes.length) {
+      _pcmBuffer.add(Uint8List.sublistView(bytes, offset));
+    }
+  }
+
+  static void _flushPcmBuffer() {
+    final remaining = _pcmBuffer.takeBytes();
+    if (remaining.isEmpty) return;
+
+    final padded = Uint8List(FRAME_BYTES);
+    padded.setRange(0, remaining.length, remaining);
+    final opusData = _encodeFrame(padded);
+    if (opusData != null) _audioStreamController.add(opusData);
+  }
+
+  /// 每次只编码完整的 60 毫秒 PCM 帧
+  static Uint8List? _encodeFrame(Uint8List pcmData) {
     try {
-      // 删除频繁日志
-      // 转换PCM数据为Int16List (小端字节序，与Android一致)
-      final Int16List pcmInt16 = Int16List.fromList(
-        List.generate(
-          pcmData.length ~/ 2,
-          (i) => (pcmData[i * 2]) | (pcmData[i * 2 + 1] << 8),
-        ),
-      );
-
-      // 确保数据长度符合Opus要求（必须是2.5ms、5ms、10ms、20ms、40ms或60ms的采样数）
-      final int samplesPerFrame = (SAMPLE_RATE * FRAME_DURATION) ~/ 1000;
-
-      Uint8List encoded;
-
-      // 处理过短的数据
-      if (pcmInt16.length < samplesPerFrame) {
-        // 对于过短的数据，可以通过添加静音来填充到所需长度
-        final Int16List paddedData = Int16List(samplesPerFrame);
-        for (int i = 0; i < pcmInt16.length; i++) {
-          paddedData[i] = pcmInt16[i];
-        }
-
-        // 编码填充后的数据
-        encoded = Uint8List.fromList(_encoder.encode(input: paddedData));
-      } else {
-        // 对于足够长的数据，裁剪到精确的帧长度
-        encoded = Uint8List.fromList(
-          _encoder.encode(input: pcmInt16.sublist(0, samplesPerFrame)),
-        );
+      final pcmInt16 = Int16List(FRAME_SAMPLES);
+      final byteData = ByteData.sublistView(pcmData);
+      for (var i = 0; i < FRAME_SAMPLES; i++) {
+        pcmInt16[i] = byteData.getInt16(i * 2, Endian.little);
       }
-
-      return encoded;
+      return Uint8List.fromList(_encoder.encode(input: pcmInt16));
     } catch (e, stackTrace) {
       print('$TAG: Opus编码失败: $e');
       print(stackTrace);

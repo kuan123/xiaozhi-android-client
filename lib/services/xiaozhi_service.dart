@@ -481,15 +481,6 @@ class XiaozhiService {
         }
       }
 
-      // 开始录音
-      await AudioUtil.startRecording();
-
-      // 设置音频流订阅
-      _audioStreamSubscription = AudioUtil.audioStream.listen((opusData) {
-        // 发送音频数据
-        _webSocketManager?.sendBinaryMessage(opusData);
-      });
-
       // 发送开始监听命令
       final message = {
         'session_id': _sessionId,
@@ -498,6 +489,11 @@ class XiaozhiService {
         'mode': 'auto',
       };
       _webSocketManager?.sendMessage(jsonEncode(message));
+      await _audioStreamSubscription?.cancel();
+      _audioStreamSubscription = AudioUtil.audioStream.listen((opusData) {
+        _webSocketManager?.sendBinaryMessage(opusData);
+      });
+      await AudioUtil.startRecording();
       print('$TAG: 已发送开始监听消息 (语音通话模式)');
     } catch (e) {
       print('$TAG: 开始监听失败: $e');
@@ -508,12 +504,10 @@ class XiaozhiService {
   /// 停止听说（语音通话模式）
   Future<void> stopListeningCall() async {
     try {
-      // 取消音频流订阅
-      await _audioStreamSubscription?.cancel();
-      _audioStreamSubscription = null;
-
       // 停止录音
       await AudioUtil.stopRecording();
+      await _audioStreamSubscription?.cancel();
+      _audioStreamSubscription = null;
 
       // 发送停止监听命令
       if (_sessionId != null && _webSocketManager != null) {
@@ -767,9 +761,6 @@ class XiaozhiService {
         return;
       }
 
-      // 开始录音
-      await AudioUtil.startRecording();
-
       // 发送开始监听命令
       final message = {
         'session_id': _sessionId,
@@ -781,10 +772,12 @@ class XiaozhiService {
       print('$TAG: 已发送开始监听消息 (按住说话)');
 
       // 设置音频流订阅
+      await _audioStreamSubscription?.cancel();
       _audioStreamSubscription = AudioUtil.audioStream.listen((opusData) {
         // 发送音频数据
         _webSocketManager?.sendBinaryMessage(opusData);
       });
+      await AudioUtil.startRecording();
     } catch (e) {
       print('$TAG: 开始监听失败: $e');
       throw Exception('开始语音输入失败: $e');
@@ -794,12 +787,10 @@ class XiaozhiService {
   /// 停止监听（按住说话模式）
   Future<void> stopListening() async {
     try {
-      // 取消音频流订阅
-      await _audioStreamSubscription?.cancel();
-      _audioStreamSubscription = null;
-
       // 停止录音
       await AudioUtil.stopRecording();
+      await _audioStreamSubscription?.cancel();
+      _audioStreamSubscription = null;
 
       // 发送停止监听命令
       if (_sessionId != null && _webSocketManager != null) {
